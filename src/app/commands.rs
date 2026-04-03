@@ -13,6 +13,7 @@ impl App {
             Command::Update(secs) => self.update_active(secs),
             Command::Revert => self.try_revert(),
             Command::Remove => self.remove_active(),
+            Command::Complete => self.complete_active(),
             Command::NewTimer(secs, name) => {
                 if let Err(AddTimerError::DuplicateName(name)) = self.add_timer(secs, name) {
                     self.mode = Mode::NamePrompt(secs);

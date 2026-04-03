@@ -7,6 +7,7 @@ pub enum Command {
     Update(f64),
     Revert,
     Remove,
+    Complete,
     NewTimer(f64, String),
     NamePrompt(f64),
     Switch,
@@ -37,6 +38,9 @@ impl Command {
         }
         if Self::is_alias(input, &["stop", "remove", "rm"]) {
             return Self::Remove;
+        }
+        if Self::is_alias(input, &["complete", "compl", "c", "done"]) {
+            return Self::Complete;
         }
         if Self::is_alias(input, &["tt"]) {
             return Self::Switch;
@@ -126,6 +130,15 @@ mod tests {
         assert_eq!(Command::parse("remove"), Command::Remove);
         assert_eq!(Command::parse("rm"), Command::Remove);
         assert_eq!(Command::parse("RM"), Command::Remove);
+    }
+
+    #[test]
+    fn complete_aliases() {
+        assert_eq!(Command::parse("complete"), Command::Complete);
+        assert_eq!(Command::parse("compl"), Command::Complete);
+        assert_eq!(Command::parse("c"), Command::Complete);
+        assert_eq!(Command::parse("done"), Command::Complete);
+        assert_eq!(Command::parse("DONE"), Command::Complete);
     }
 
     #[test]

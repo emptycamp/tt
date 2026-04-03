@@ -8,12 +8,13 @@ use super::{App, AUTO_SAVE_INTERVAL_SECS, EVENT_POLL_INTERVAL_MS};
 
 impl App {
     fn update_title(&self) {
+        let mode_prefix = if self.is_test_mode { "[TEST] " } else { "" };
         let title = self.active_timer().map_or_else(
-            || String::from("tt"),
+            || format!("{mode_prefix}tt"),
             |timer| {
                 let remaining = timer.format_remaining();
                 let icon = timer.state_icon();
-                format!("{icon} {remaining} — {}", timer.name)
+                format!("{mode_prefix}{icon} {remaining} — {}", timer.name)
             },
         );
         let _ = execute!(std::io::stdout(), SetTitle(&title));

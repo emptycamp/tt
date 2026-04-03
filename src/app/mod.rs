@@ -45,6 +45,7 @@ pub(super) enum AddTimerError {
 pub struct App {
     pub timers: Vec<Timer>,
     pub active_id: Option<u32>,
+    pub is_test_mode: bool,
     pub mode: Mode,
     pub input_buffer: String,
     pub selector_filter: String,
@@ -108,6 +109,7 @@ impl Default for App {
 impl App {
     pub fn new() -> Self {
         let (timers, active_id, time_debt_secs) = store::load();
+        let is_test_mode = store::is_test_mode();
         let next_id = timers.iter().map(|t| t.id).max().unwrap_or(0) + 1;
         let has_active_timer = active_id
             .and_then(|id| timers.iter().find(|t| t.id == id))
@@ -119,6 +121,7 @@ impl App {
         Self {
             timers,
             active_id,
+            is_test_mode,
             mode: Mode::Normal,
             input_buffer: String::new(),
             selector_filter: String::new(),
