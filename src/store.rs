@@ -1,11 +1,14 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use chrono::Local;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
 use crate::timer::{Timer, TimerState};
+
+static TEST_MODE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Serialize, Deserialize)]
 struct StoreData {
@@ -26,7 +29,20 @@ struct TimerData {
 }
 
 fn data_dir() -> Option<PathBuf> {
-    ProjectDirs::from("", "", "tt").map(|p| p.data_dir().to_path_buf())
+    let app_name = if TEST_MODE.load(Ordering::Relaxed) {
+        "tt-test"
+    } else {
+        "tt"
+    };
+    ProjectDirs::from("", "", app_name).map(|p| p.data_dir().to_path_buf())
+}
+
+pub fn set_test_mode(enabled: bool) {
+    TEST_MODE.store(enabled, Ordering::Relaxed);
+}
+
+pub fn is_test_mode() -> bool {
+    TEST_MODE.load(Ordering::Relaxed)
 }
 
 fn store_path() -> Option<PathBuf> {

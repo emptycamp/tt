@@ -36,6 +36,7 @@ fn make_app() -> App {
     App {
         timers: vec![],
         active_id: None,
+        is_test_mode: false,
         mode: Mode::Normal,
         input_buffer: String::new(),
         selector_filter: String::new(),
@@ -183,6 +184,37 @@ fn remove_command_removes_timer() {
     app.handle_event(&press(KeyCode::Enter));
     assert!(app.timers.is_empty());
     assert_eq!(app.active_id, None);
+}
+
+#[test]
+fn complete_command_removes_timer_and_reduces_time_debt_for_positive_remaining() {
+    let mut app = make_app_with_timer("test", 900.0);
+    app.time_debt_secs = 0.0;
+
+    app.input_buffer = "complete".into();
+    app.handle_event(&press(KeyCode::Enter));
+
+    assert!(app.timers.is_empty());
+    assert_eq!(app.active_id, None);
+    assert_eq!(app.time_debt_secs, -900.0);
+}
+
+#[test]
+fn complete_command_removes_timer_without_changing_debt_for_non_positive_remaining() {
+    let mut app = make_app_with_timer("test", 60.0);
+    app.time_debt_secs = 120.0;
+    if let Some(timer) = app.active_timer_mut() {
+        timer.remaining_secs = -15.0;
+        timer.state = crate::timer::TimerState::Expired;
+        timer.last_tick = None;
+    }
+
+    app.input_buffer = "done".into();
+    app.handle_event(&press(KeyCode::Enter));
+
+    assert!(app.timers.is_empty());
+    assert_eq!(app.active_id, None);
+    assert_eq!(app.time_debt_secs, 120.0);
 }
 
 #[test]

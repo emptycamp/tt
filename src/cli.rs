@@ -5,6 +5,10 @@ use crate::duration::parse_duration;
 #[derive(Parser)]
 #[command(name = "tt", about = "Terminal timer tool")]
 pub struct Cli {
+    /// Run against isolated test data instead of production data.
+    #[arg(long)]
+    pub test: bool,
+
     /// All arguments: duration and name in any order.
     /// Example: `tt 5m meeting` or `tt some long name 4s`
     pub args: Vec<String>,
@@ -60,10 +64,14 @@ fn action_from_args(args: &[String]) -> CliAction {
     CliAction::NameOnly(args.join(" "))
 }
 
-pub fn confirm_clear() -> bool {
+pub fn confirm_clear(is_test_mode: bool) -> bool {
     use std::io::{self, Write};
 
-    print!("Clear all timer data? [y/N] ");
+    if is_test_mode {
+        print!("Clear TEST timer data? [y/N] ");
+    } else {
+        print!("Clear all timer data? [y/N] ");
+    }
     if io::stdout().flush().is_err() {
         return false;
     }
@@ -189,5 +197,21 @@ mod tests {
         } else {
             panic!("expected NewTimer with first arg as duration");
         }
+    }
+
+    #[test]
+    fn parse_test_flag_with_args() {
+        let cli = Cli::parse_from(["tt", "--test", "clear"]);
+        assert!(cli.test);
+        assert_eq!(cli.args, vec!["clear"]);
+        assert!(matches!(cli.action(), CliAction::Clear));
+    }
+
+    #[test]
+    fn parse_without_test_flag() {
+        let cli = Cli::parse_from(["tt", "5m", "meeting"]);
+        assert!(!cli.test);
+        assert_eq!(cli.args, vec!["5m", "meeting"]);
+        assert!(matches!(cli.action(), CliAction::NewTimer(_, _)));
     }
 }

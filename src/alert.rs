@@ -1,6 +1,12 @@
 /// Cumulative Fibonacci minute thresholds for overdue alerts.
 const FIB_THRESHOLDS: &[f64] = &[0.0, 1.0, 2.0, 4.0, 7.0, 12.0, 20.0, 33.0, 54.0, 88.0, 143.0];
 
+fn side_effects_enabled() -> bool {
+    // Unit tests are built with cfg(test), while integration tests run under
+    // the Rust test harness and expose RUST_TEST_THREADS.
+    !(cfg!(test) || std::env::var_os("RUST_TEST_THREADS").is_some())
+}
+
 /// Check if an alert should fire based on overdue seconds and the current
 /// Fibonacci alert index. Returns `true` when the timer should advance to the
 /// next alert stage.
@@ -17,6 +23,10 @@ pub fn should_alert(overdue_secs: f64, fib_index: usize) -> bool {
 /// Play the Windows "tada" sound asynchronously.
 #[cfg(windows)]
 pub fn play_sound() {
+    if !side_effects_enabled() {
+        return;
+    }
+
     use windows::core::w;
     use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_FILENAME};
     unsafe {
@@ -30,11 +40,19 @@ pub fn play_sound() {
 
 #[cfg(not(windows))]
 pub fn play_sound() {
+    if !side_effects_enabled() {
+        return;
+    }
+
     // No-op on non-Windows platforms
 }
 
 /// Show a desktop notification when a timer expires.
 pub fn show_toast(timer_name: &str) {
+    if !side_effects_enabled() {
+        return;
+    }
+
     let _ = notify_rust::Notification::new()
         .summary("tt — Timer expired")
         .body(&format!("\"{timer_name}\" has finished!"))
@@ -86,5 +104,10 @@ mod tests {
     fn alert_boundary_exact() {
         assert!(should_alert(20.0 * 60.0, 6));
         assert!(!should_alert(19.9 * 60.0, 6));
+    }
+
+    #[test]
+    fn side_effects_are_disabled_in_unit_tests() {
+        assert!(!side_effects_enabled());
     }
 }

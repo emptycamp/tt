@@ -15,13 +15,15 @@ use tt::store;
 
 fn main() {
     let cli = Cli::parse();
+    store::set_test_mode(cli.test);
+
     let mut app = match cli.action() {
         CliAction::NewTimer(secs, name) => App::with_timer(secs, name),
         CliAction::DurationOnly(secs) => App::with_duration_prompt(secs),
         CliAction::NameOnly(name) => App::with_name_prompt(name),
         CliAction::Resume => App::new(),
         CliAction::Clear => {
-            if confirm_clear() {
+            if confirm_clear(cli.test) {
                 store::clear();
                 println!("Timer data cleared.");
             } else {

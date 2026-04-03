@@ -66,13 +66,29 @@ impl App {
     }
 
     pub(super) fn remove_active(&mut self) {
+        self.remove_active_impl(true);
+    }
+
+    pub(super) fn complete_active(&mut self) {
+        if let Some(remaining_secs) = self.active_timer().map(|t| t.remaining_secs) {
+            if remaining_secs > 0.0 {
+                self.time_debt_secs -= remaining_secs;
+            }
+        }
+
+        self.remove_active_impl(false);
+    }
+
+    fn remove_active_impl(&mut self, with_undo: bool) {
         let Some(id) = self.active_id else { return };
 
-        if let Some(timer) = self.timers.iter().find(|t| t.id == id).cloned() {
-            self.undo_stack.push(UndoEntry {
-                timestamp: Instant::now(),
-                action: UndoAction::TimerRemoved(timer),
-            });
+        if with_undo {
+            if let Some(timer) = self.timers.iter().find(|t| t.id == id).cloned() {
+                self.undo_stack.push(UndoEntry {
+                    timestamp: Instant::now(),
+                    action: UndoAction::TimerRemoved(timer),
+                });
+            }
         }
 
         self.timers.retain(|t| t.id != id);

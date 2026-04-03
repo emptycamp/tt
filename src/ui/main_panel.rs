@@ -140,7 +140,20 @@ fn draw_empty_state(frame: &mut Frame, area: Rect) {
 }
 
 pub(super) fn draw_command_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let block = Block::default().borders(Borders::ALL).title(" : ");
+    let title = if app.is_test_mode {
+        " : TEST MODE "
+    } else {
+        " : "
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .style(if app.is_test_mode {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default()
+        });
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
