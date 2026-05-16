@@ -12,6 +12,10 @@ pub struct Cli {
     /// All arguments: duration and name in any order.
     /// Example: `tt 5m meeting` or `tt some long name 4s`
     pub args: Vec<String>,
+
+    /// Clear all timer data
+    #[arg(long, visible_alias = "reset")]
+    pub clear: bool,
 }
 
 pub enum CliAction {
@@ -25,6 +29,9 @@ pub enum CliAction {
 impl Cli {
     /// Parse all raw CLI args into a high-level action.
     pub fn action(&self) -> CliAction {
+        if self.clear {
+            return CliAction::Clear;
+        }
         action_from_args(&self.args)
     }
 }
@@ -35,10 +42,6 @@ impl Cli {
 fn action_from_args(args: &[String]) -> CliAction {
     if args.is_empty() {
         return CliAction::Resume;
-    }
-
-    if args.len() == 1 && args[0].eq_ignore_ascii_case("clear") {
-        return CliAction::Clear;
     }
 
     // Try first arg as duration
@@ -98,15 +101,11 @@ mod tests {
     }
 
     #[test]
-    fn clear_arg() {
-        assert!(matches!(
-            action_from_args(&args(&["clear"])),
-            CliAction::Clear
-        ));
-        assert!(matches!(
-            action_from_args(&args(&["CLEAR"])),
-            CliAction::Clear
-        ));
+    fn clear_flag() {
+        let cli = Cli::try_parse_from(["tt", "--clear"]).unwrap();
+        assert!(matches!(cli.action(), CliAction::Clear));
+        let cli = Cli::try_parse_from(["tt", "--reset"]).unwrap();
+        assert!(matches!(cli.action(), CliAction::Clear));
     }
 
     #[test]
