@@ -48,7 +48,7 @@ impl Command {
 
         if let Some((head, tail)) = input.split_once(char::is_whitespace) {
             let rest = tail.trim();
-            if head.eq_ignore_ascii_case("update") {
+            if Self::is_alias(head, &["update", "set", "s"]) {
                 return match parse_duration(rest) {
                     Ok(secs) => Self::Update(secs),
                     Err(_) => Self::Unknown(input.to_string()),
@@ -161,6 +161,13 @@ mod tests {
         } else {
             panic!("expected Update");
         }
+    }
+
+    #[test]
+    fn update_aliases() {
+        assert_eq!(Command::parse("set 5m"), Command::Update(300.0));
+        assert_eq!(Command::parse("s 5m"), Command::Update(300.0));
+        assert_eq!(Command::parse("SET 5m"), Command::Update(300.0));
     }
 
     #[test]
