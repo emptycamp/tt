@@ -1,8 +1,12 @@
+use std::collections::HashMap;
 use std::time::Instant;
 
 use crossterm::event::{Event, KeyEvent, KeyEventKind};
 
+use crate::config;
 use crate::store;
+use crate::task_integration::{CliTaskSource, TaskSource};
+use crate::task_state::{self, OverlayEntry};
 use crate::timer::{Timer, TimerState};
 
 mod commands;
@@ -61,11 +65,21 @@ pub struct App {
     undo_stack: Vec<UndoEntry>,
     all_paused_since: Option<Instant>,
     last_save: Instant,
+    /// Whether `ttask` integration is enabled (snapshot of config at startup).
+    pub(super) integrate: bool,
+    /// Bridge to the external `ttask` tool; `None` when integration is off.
+    pub(super) task_source: Option<Box<dyn TaskSource>>,
+    /// Persisted task-timer countdowns loaded at startup, keyed by task id. Used
+    /// to resume a task-backed timer where it left off when it first appears.
+    pub(super) task_overlay: HashMap<u32, OverlayEntry>,
+    last_sync: Instant,
 }
 
 const UNDO_WINDOW_SECS: u64 = 20;
 const AUTO_SAVE_INTERVAL_SECS: u64 = 5;
 const EVENT_POLL_INTERVAL_MS: u64 = 100;
+/// How often to reconcile timers against the `ttask` tool's active task list.
+const TASK_SYNC_INTERVAL_SECS: u64 = 3;
 
 const TIME_DEBT_LABELS: &[&str] = &[
     "Time laundering",
@@ -118,7 +132,22 @@ impl App {
             !timers.is_empty() && timers.iter().all(|t| t.state == TimerState::Paused);
         let should_track_idle_debt = !has_active_timer || all_timers_paused;
 
-        Self {
+        // Integration is opt-out via config and only active when the `ttask` tool
+        // is actually reachable. When off/unavailable, everything below is inert
+        // and tt behaves exactly as before.
+        let integrate = config::integrate_with_task();
+        let task_source: Option<Box<dyn TaskSource>> = if integrate {
+            Some(Box::new(CliTaskSource::new(is_test_mode)))
+        } else {
+            None
+        };
+        let task_overlay = if integrate {
+            task_state::load()
+        } else {
+            HashMap::new()
+        };
+
+        let mut app = Self {
             timers,
             active_id,
             is_test_mode,
@@ -141,6 +170,36 @@ impl App {
                 None
             },
             last_save: Instant::now(),
+            integrate,
+            task_source,
+            task_overlay,
+            last_sync: Instant::now(),
+        };
+
+        // Surface existing tasks as timers immediately (no-op when integration is
+        // off or `ttask` is unavailable), restoring any countdown in progress.
+        app.sync_with_tasks(true);
+        app
+    }
+
+    /// Construct the app for a bare `tt` invocation: load existing state and, if
+    /// nothing is currently active but timers exist, auto-start the topmost one
+    /// so the user lands on a running timer instead of an idle screen.
+    pub fn resume() -> Self {
+        let mut app = Self::new();
+        app.auto_start_topmost();
+        app
+    }
+
+    /// If no timer is currently active but at least one exists, start the
+    /// topmost one (the first in the list, matching the selector order).
+    fn auto_start_topmost(&mut self) {
+        if self.active_timer().is_some() {
+            return;
+        }
+        if let Some(first) = self.timers.first() {
+            let id = first.id;
+            self.switch_to(id);
         }
     }
 
@@ -177,6 +236,10 @@ impl App {
         self.timers.iter_mut().find(|t| t.id == id)
     }
 
+    /// Timers matching the current selector filter, in the order the switch
+    /// picker shows them. `self.timers` is kept in creation order (ascending
+    /// id) at every mutation point — new timers append, reverts re-insert in
+    /// place — so this is creation-time ascending.
     pub fn filtered_timers(&self) -> Vec<&Timer> {
         let filter = self.selector_filter.to_lowercase();
         self.timers
@@ -186,6 +249,26 @@ impl App {
     }
 
     fn save(&self) {
-        store::save(&self.timers, self.active_id, self.time_debt_secs);
+        // Ad-hoc timers go to the daily store exactly as before. When there are
+        // no task-backed timers this is identical to the original `save`: `adhoc`
+        // == all timers and `daily_active` == `active_id`.
+        let adhoc: Vec<Timer> = self
+            .timers
+            .iter()
+            .filter(|t| !t.is_task_backed())
+            .cloned()
+            .collect();
+        let daily_active = self.active_id.filter(|id| {
+            self.timers
+                .iter()
+                .any(|t| t.id == *id && !t.is_task_backed())
+        });
+        store::save(&adhoc, daily_active, self.time_debt_secs);
+
+        // Task-backed timer countdowns go to the separate overlay (which removes
+        // its file when empty). Only relevant when integration is on.
+        if self.integrate {
+            self.save_task_overlay();
+        }
     }
 }

@@ -106,7 +106,14 @@ impl App {
         match entry.action {
             UndoAction::TimerRemoved(timer) => {
                 let id = timer.id;
-                self.timers.push(timer);
+                // Re-insert in creation order (ascending id) rather than at the
+                // end, so the switch picker stays sorted by creation time.
+                let pos = self
+                    .timers
+                    .iter()
+                    .position(|t| t.id > id)
+                    .unwrap_or(self.timers.len());
+                self.timers.insert(pos, timer);
                 self.switch_to(id);
             }
             UndoAction::TimeChanged {

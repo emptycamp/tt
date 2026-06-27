@@ -48,7 +48,10 @@ impl App {
                 self.mode = Mode::Normal;
             }
             KeyCode::Enter => {
-                let selected_id = self.filtered_timers().get(self.selector_index).map(|t| t.id);
+                let selected_id = self
+                    .filtered_timers()
+                    .get(self.selector_index)
+                    .map(|t| t.id);
                 if let Some(id) = selected_id {
                     self.mode = Mode::Normal;
                     self.switch_to(id);
@@ -94,11 +97,13 @@ impl App {
                             Mode::TimePrompt(name) => name,
                             _ => "Timer".to_string(),
                         };
-                        if let Err(AddTimerError::DuplicateName(name)) = self.add_timer(secs, name) {
+                        if let Err(AddTimerError::DuplicateName(name)) = self.add_timer(secs, name)
+                        {
                             self.mode = Mode::NamePrompt(secs);
                             self.name_prompt_buffer = name;
                             self.name_prompt_error = Some(
-                                "Timer with this name already exists. Enter a different name.".to_string(),
+                                "Timer with this name already exists. Enter a different name."
+                                    .to_string(),
                             );
                         }
                     }
@@ -136,10 +141,13 @@ impl App {
                 let trimmed_name = name.trim().to_string();
 
                 if !trimmed_name.is_empty() {
-                    if let Err(AddTimerError::DuplicateName(name)) = self.add_timer(secs, trimmed_name) {
+                    if let Err(AddTimerError::DuplicateName(name)) =
+                        self.add_timer(secs, trimmed_name)
+                    {
                         self.name_prompt_buffer = name;
                         self.name_prompt_error = Some(
-                            "Timer with this name already exists. Enter a different name.".to_string(),
+                            "Timer with this name already exists. Enter a different name."
+                                .to_string(),
                         );
                         return;
                     }

@@ -47,15 +47,12 @@ pub(super) fn draw_main(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn draw_active_timer(
-    frame: &mut Frame,
-    app: &App,
-    timer: &Timer,
-    area: Rect,
-) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(format!(" {} {} ", timer.state_icon(), timer.name));
+fn draw_active_timer(frame: &mut Frame, app: &App, timer: &Timer, area: Rect) {
+    let block = Block::default().borders(Borders::ALL).title(format!(
+        " {} {} ",
+        timer.state_icon(),
+        timer.name
+    ));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);

@@ -1,8 +1,11 @@
-pub mod app;
 pub mod alert;
+pub mod app;
 pub mod cli;
 pub mod command;
+pub mod config;
 pub mod duration;
 pub mod store;
+pub mod task_integration;
+pub mod task_state;
 pub mod timer;
 pub mod ui;
