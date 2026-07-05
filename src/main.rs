@@ -35,8 +35,8 @@ fn main() {
         CliAction::DurationOnly(secs) => App::with_duration_prompt(secs),
         CliAction::NameOnly(name) => App::with_name_prompt(name),
         CliAction::Resume => App::resume(),
-        CliAction::Clear => {
-            if confirm_clear(cli.test) {
+        CliAction::Clear { force } => {
+            if force || confirm_clear(cli.test) {
                 store::clear();
                 println!("Timer data cleared.");
             } else {

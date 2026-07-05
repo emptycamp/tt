@@ -38,7 +38,10 @@ pub enum Command {
 
 pub enum CliAction {
     Resume,
-    Clear,
+    /// Clear all data. `force` skips the confirmation prompt (`tt clear -f`).
+    Clear {
+        force: bool,
+    },
     NewTimer(f64, String),
     DurationOnly(f64),
     NameOnly(String),
@@ -49,20 +52,32 @@ impl Cli {
     /// (The `config` subcommand is handled separately, before this is called.)
     pub fn action(&self) -> CliAction {
         match &self.command {
-            // `tt clear` / `tt reset` (the word on its own) clears all data.
-            Some(Command::Timer(args)) if is_clear_args(args) => CliAction::Clear,
-            Some(Command::Timer(args)) => action_from_args(args),
+            // `tt clear` / `tt reset` (optionally with `-f`/`--force`) clears all data.
+            Some(Command::Timer(args)) => {
+                clear_action(args).unwrap_or_else(|| action_from_args(args))
+            }
             // No command, or the `config` subcommand (handled elsewhere).
             _ => CliAction::Resume,
         }
     }
 }
 
-/// True only for `clear`/`reset` passed as the sole argument. Anything more —
-/// e.g. `tt clear something` — is left to the normal timer path (a timer named
-/// "clear something"), so these words aren't globally reserved.
-fn is_clear_args(args: &[String]) -> bool {
-    matches!(args, [only] if only.eq_ignore_ascii_case("clear") || only.eq_ignore_ascii_case("reset"))
+/// Recognise a `clear`/`reset` invocation, optionally followed by `-f`/`--force`,
+/// returning the resulting `Clear` action. Anything else — e.g. `tt clear something`
+/// — yields `None` and is left to the normal timer path (a timer named "clear
+/// something"), so these words aren't globally reserved.
+fn clear_action(args: &[String]) -> Option<CliAction> {
+    let is_clear_word =
+        |s: &str| s.eq_ignore_ascii_case("clear") || s.eq_ignore_ascii_case("reset");
+    let is_force_flag = |s: &str| s == "-f" || s == "--force";
+
+    match args {
+        [word] if is_clear_word(word) => Some(CliAction::Clear { force: false }),
+        [word, flag] if is_clear_word(word) && is_force_flag(flag) => {
+            Some(CliAction::Clear { force: true })
+        }
+        _ => None,
+    }
 }
 
 /// Parse timer CLI args into a `CliAction`.
@@ -131,14 +146,32 @@ mod tests {
 
     #[test]
     fn clear_word_alone_clears() {
-        // `tt clear` (and the `reset` alias) — the word on its own — clears data.
+        // `tt clear` (and the `reset` alias) — the word on its own — clears data,
+        // prompting for confirmation (not forced).
         let cli = Cli::try_parse_from(["tt", "clear"]).unwrap();
-        assert!(matches!(cli.action(), CliAction::Clear));
+        assert!(matches!(cli.action(), CliAction::Clear { force: false }));
         let cli = Cli::try_parse_from(["tt", "reset"]).unwrap();
-        assert!(matches!(cli.action(), CliAction::Clear));
+        assert!(matches!(cli.action(), CliAction::Clear { force: false }));
         // Case-insensitive, matching the in-app command aliases.
         let cli = Cli::try_parse_from(["tt", "CLEAR"]).unwrap();
-        assert!(matches!(cli.action(), CliAction::Clear));
+        assert!(matches!(cli.action(), CliAction::Clear { force: false }));
+    }
+
+    #[test]
+    fn clear_force_flag_skips_confirmation() {
+        // `tt clear -f` / `--force` (and the `reset` alias) clears without prompting.
+        for flag in ["-f", "--force"] {
+            let cli = Cli::try_parse_from(["tt", "clear", flag]).unwrap();
+            assert!(
+                matches!(cli.action(), CliAction::Clear { force: true }),
+                "expected forced clear for `clear {flag}`"
+            );
+            let cli = Cli::try_parse_from(["tt", "reset", flag]).unwrap();
+            assert!(
+                matches!(cli.action(), CliAction::Clear { force: true }),
+                "expected forced clear for `reset {flag}`"
+            );
+        }
     }
 
     #[test]
@@ -152,7 +185,11 @@ mod tests {
     fn clear_honors_global_test_flag() {
         let cli = Cli::try_parse_from(["tt", "--test", "clear"]).unwrap();
         assert!(cli.test);
-        assert!(matches!(cli.action(), CliAction::Clear));
+        assert!(matches!(cli.action(), CliAction::Clear { force: false }));
+        // The global `--test` flag composes with a forced clear.
+        let cli = Cli::try_parse_from(["tt", "--test", "clear", "-f"]).unwrap();
+        assert!(cli.test);
+        assert!(matches!(cli.action(), CliAction::Clear { force: true }));
     }
 
     #[test]
