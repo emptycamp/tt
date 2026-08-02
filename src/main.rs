@@ -10,20 +10,33 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 
 use tt::app::App;
-use tt::cli::{confirm_clear, CliAction, Cli};
-use tt::store;
+use tt::cli::{confirm_clear, Cli, CliAction, Command};
+use tt::{config, store};
 
 fn main() {
     let cli = Cli::parse();
     store::set_test_mode(cli.test);
 
+    // `tt config ...` / `tt conf ...` is handled here, before any TUI is built.
+    // It does not touch timer state.
+    if let Some(Command::Config { action }) = &cli.command {
+        match config::run(action) {
+            Ok(msg) => println!("{msg}"),
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     let mut app = match cli.action() {
         CliAction::NewTimer(secs, name) => App::with_timer(secs, name),
         CliAction::DurationOnly(secs) => App::with_duration_prompt(secs),
         CliAction::NameOnly(name) => App::with_name_prompt(name),
-        CliAction::Resume => App::new(),
-        CliAction::Clear => {
-            if confirm_clear(cli.test) {
+        CliAction::Resume => App::resume(),
+        CliAction::Clear { force } => {
+            if force || confirm_clear(cli.test) {
                 store::clear();
                 println!("Timer data cleared.");
             } else {

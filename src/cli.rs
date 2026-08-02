@@ -1,42 +1,86 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
+use crate::config::ConfigAction;
 use crate::duration::parse_duration;
 
 #[derive(Parser)]
 #[command(name = "tt", about = "Terminal timer tool")]
+#[command(disable_help_subcommand = true)]
+#[command(
+    long_about = "Terminal timer tool. Pass a duration and an optional name \
+(in either order) to start a timer, or run `tt` with no arguments to resume the last one."
+)]
 pub struct Cli {
     /// Run against isolated test data instead of production data.
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub test: bool,
 
-    /// All arguments: duration and name in any order.
-    /// Example: `tt 5m meeting` or `tt some long name 4s`
-    pub args: Vec<String>,
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
 
-    /// Clear all timer data
-    #[arg(long, visible_alias = "reset")]
-    pub clear: bool,
+#[derive(Subcommand)]
+pub enum Command {
+    /// Manage tt configuration.
+    #[command(visible_alias = "conf")]
+    // Bare `tt config` should error (asking for a subcommand), NOT dump help.
+    // Help is shown only via `tt config --help`.
+    #[command(arg_required_else_help = false, subcommand_required = true)]
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+
+    /// Duration and/or name for a new or resumed timer.
+    #[command(external_subcommand)]
+    Timer(Vec<String>),
 }
 
 pub enum CliAction {
     Resume,
-    Clear,
+    /// Clear all data. `force` skips the confirmation prompt (`tt clear -f`).
+    Clear {
+        force: bool,
+    },
     NewTimer(f64, String),
     DurationOnly(f64),
     NameOnly(String),
 }
 
 impl Cli {
-    /// Parse all raw CLI args into a high-level action.
+    /// Parse the timer-related portion of the CLI into a high-level action.
+    /// (The `config` subcommand is handled separately, before this is called.)
     pub fn action(&self) -> CliAction {
-        if self.clear {
-            return CliAction::Clear;
+        match &self.command {
+            // `tt clear` / `tt reset` (optionally with `-f`/`--force`) clears all data.
+            Some(Command::Timer(args)) => {
+                clear_action(args).unwrap_or_else(|| action_from_args(args))
+            }
+            // No command, or the `config` subcommand (handled elsewhere).
+            _ => CliAction::Resume,
         }
-        action_from_args(&self.args)
     }
 }
 
-/// Parse CLI args into a `CliAction`.
+/// Recognise a `clear`/`reset` invocation, optionally followed by `-f`/`--force`,
+/// returning the resulting `Clear` action. Anything else — e.g. `tt clear something`
+/// — yields `None` and is left to the normal timer path (a timer named "clear
+/// something"), so these words aren't globally reserved.
+fn clear_action(args: &[String]) -> Option<CliAction> {
+    let is_clear_word =
+        |s: &str| s.eq_ignore_ascii_case("clear") || s.eq_ignore_ascii_case("reset");
+    let is_force_flag = |s: &str| s == "-f" || s == "--force";
+
+    match args {
+        [word] if is_clear_word(word) => Some(CliAction::Clear { force: false }),
+        [word, flag] if is_clear_word(word) && is_force_flag(flag) => {
+            Some(CliAction::Clear { force: true })
+        }
+        _ => None,
+    }
+}
+
+/// Parse timer CLI args into a `CliAction`.
 ///
 /// Time can be the first or last arg. Everything else is the name.
 fn action_from_args(args: &[String]) -> CliAction {
@@ -101,11 +145,51 @@ mod tests {
     }
 
     #[test]
-    fn clear_flag() {
-        let cli = Cli::try_parse_from(["tt", "--clear"]).unwrap();
-        assert!(matches!(cli.action(), CliAction::Clear));
-        let cli = Cli::try_parse_from(["tt", "--reset"]).unwrap();
-        assert!(matches!(cli.action(), CliAction::Clear));
+    fn clear_word_alone_clears() {
+        // `tt clear` (and the `reset` alias) — the word on its own — clears data,
+        // prompting for confirmation (not forced).
+        let cli = Cli::try_parse_from(["tt", "clear"]).unwrap();
+        assert!(matches!(cli.action(), CliAction::Clear { force: false }));
+        let cli = Cli::try_parse_from(["tt", "reset"]).unwrap();
+        assert!(matches!(cli.action(), CliAction::Clear { force: false }));
+        // Case-insensitive, matching the in-app command aliases.
+        let cli = Cli::try_parse_from(["tt", "CLEAR"]).unwrap();
+        assert!(matches!(cli.action(), CliAction::Clear { force: false }));
+    }
+
+    #[test]
+    fn clear_force_flag_skips_confirmation() {
+        // `tt clear -f` / `--force` (and the `reset` alias) clears without prompting.
+        for flag in ["-f", "--force"] {
+            let cli = Cli::try_parse_from(["tt", "clear", flag]).unwrap();
+            assert!(
+                matches!(cli.action(), CliAction::Clear { force: true }),
+                "expected forced clear for `clear {flag}`"
+            );
+            let cli = Cli::try_parse_from(["tt", "reset", flag]).unwrap();
+            assert!(
+                matches!(cli.action(), CliAction::Clear { force: true }),
+                "expected forced clear for `reset {flag}`"
+            );
+        }
+    }
+
+    #[test]
+    fn clear_with_extra_args_is_a_timer_name() {
+        // `tt clear something` is NOT a clear — it starts a timer named "clear something".
+        let cli = Cli::try_parse_from(["tt", "clear", "something"]).unwrap();
+        assert!(matches!(cli.action(), CliAction::NameOnly(ref n) if n == "clear something"));
+    }
+
+    #[test]
+    fn clear_honors_global_test_flag() {
+        let cli = Cli::try_parse_from(["tt", "--test", "clear"]).unwrap();
+        assert!(cli.test);
+        assert!(matches!(cli.action(), CliAction::Clear { force: false }));
+        // The global `--test` flag composes with a forced clear.
+        let cli = Cli::try_parse_from(["tt", "--test", "clear", "-f"]).unwrap();
+        assert!(cli.test);
+        assert!(matches!(cli.action(), CliAction::Clear { force: true }));
     }
 
     #[test]
@@ -144,7 +228,8 @@ mod tests {
 
     #[test]
     fn duration_last_hours() {
-        if let CliAction::NewTimer(secs, name) = action_from_args(&args(&["deep", "work", "1.5h"])) {
+        if let CliAction::NewTimer(secs, name) = action_from_args(&args(&["deep", "work", "1.5h"]))
+        {
             assert!((secs - 5400.0).abs() < 0.01);
             assert_eq!(name, "deep work");
         } else {
@@ -198,19 +283,88 @@ mod tests {
         }
     }
 
+    // --- clap wiring: timer args still flow through as before -----------------
+
     #[test]
-    fn parse_test_flag_with_args() {
-        let cli = Cli::parse_from(["tt", "--test", "clear"]);
-        assert!(cli.test);
-        assert_eq!(cli.args, vec!["clear"]);
-        assert!(matches!(cli.action(), CliAction::Clear));
+    fn parses_timer_args() {
+        let cli = Cli::parse_from(["tt", "5m", "meeting"]);
+        assert!(!cli.test);
+        assert!(matches!(cli.command, Some(Command::Timer(_))));
+        assert!(
+            matches!(cli.action(), CliAction::NewTimer(secs, ref name) if secs == 300.0 && name == "meeting")
+        );
     }
 
     #[test]
-    fn parse_without_test_flag() {
-        let cli = Cli::parse_from(["tt", "5m", "meeting"]);
-        assert!(!cli.test);
-        assert_eq!(cli.args, vec!["5m", "meeting"]);
-        assert!(matches!(cli.action(), CliAction::NewTimer(_, _)));
+    fn test_flag_is_global_and_args_still_parse() {
+        let cli = Cli::parse_from(["tt", "--test", "5m", "standup"]);
+        assert!(cli.test);
+        assert!(
+            matches!(cli.action(), CliAction::NewTimer(secs, ref name) if secs == 300.0 && name == "standup")
+        );
+    }
+
+    #[test]
+    fn no_command_resumes() {
+        let cli = Cli::parse_from(["tt"]);
+        assert!(cli.command.is_none());
+        assert!(matches!(cli.action(), CliAction::Resume));
+    }
+
+    // --- config subcommand ----------------------------------------------------
+
+    #[test]
+    fn config_list_parses() {
+        let cli = Cli::try_parse_from(["tt", "config", "list"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Config {
+                action: ConfigAction::List
+            })
+        ));
+    }
+
+    #[test]
+    fn conf_alias_and_ls_alias_parse() {
+        let cli = Cli::try_parse_from(["tt", "conf", "ls"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Config {
+                action: ConfigAction::List
+            })
+        ));
+    }
+
+    #[test]
+    fn config_set_parses() {
+        let cli =
+            Cli::try_parse_from(["tt", "config", "set", "integrate_with_task=false"]).unwrap();
+        match cli.command {
+            Some(Command::Config {
+                action: ConfigAction::Set { args },
+            }) => assert_eq!(args, vec!["integrate_with_task=false".to_string()]),
+            _ => panic!("expected config set"),
+        }
+    }
+
+    #[test]
+    fn config_without_subcommand_errors_not_help() {
+        // Bare `tt config` is an error (requires a subcommand), not a help dump.
+        // `.err().unwrap()` avoids needing `Cli: Debug` for `.unwrap_err()`.
+        let err = Cli::try_parse_from(["tt", "config"]).err().unwrap();
+        assert_eq!(
+            err.kind(),
+            clap::error::ErrorKind::MissingSubcommand,
+            "got: {:?}",
+            err.kind()
+        );
+    }
+
+    #[test]
+    fn config_help_flag_requests_help() {
+        let err = Cli::try_parse_from(["tt", "config", "--help"])
+            .err()
+            .unwrap();
+        assert_eq!(err.kind(), clap::error::ErrorKind::DisplayHelp);
     }
 }

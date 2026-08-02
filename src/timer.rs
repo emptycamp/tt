@@ -21,6 +21,11 @@ pub struct Timer {
     #[serde(skip)]
     pub last_tick: Option<Instant>,
     pub fib_alert_index: usize,
+    /// When `Some`, this timer mirrors a task (by id) from the external `ttask`
+    /// tool. `None` = an ordinary ad-hoc timer. Task-backed timers are reconciled
+    /// from `ttask` and are never auto-removed on expiry/switch.
+    #[serde(default)]
+    pub task_id: Option<u32>,
 }
 
 impl Timer {
@@ -33,7 +38,13 @@ impl Timer {
             state: TimerState::Running,
             last_tick: Some(Instant::now()),
             fib_alert_index: 0,
+            task_id: None,
         }
+    }
+
+    /// True when this timer mirrors a task from the external `ttask` tool.
+    pub fn is_task_backed(&self) -> bool {
+        self.task_id.is_some()
     }
 
     /// Advance the timer by elapsed time since last tick.

@@ -4,7 +4,7 @@ use crossterm::event;
 use crossterm::execute;
 use crossterm::terminal::SetTitle;
 
-use super::{App, AUTO_SAVE_INTERVAL_SECS, EVENT_POLL_INTERVAL_MS};
+use super::{App, Mode, AUTO_SAVE_INTERVAL_SECS, EVENT_POLL_INTERVAL_MS, TASK_SYNC_INTERVAL_SECS};
 
 impl App {
     fn update_title(&self) {
@@ -24,6 +24,18 @@ impl App {
         loop {
             self.tick();
             self.update_time_debt();
+
+            // Reconcile with the `ttask` tool on a slow cadence (subprocess), only
+            // in Normal mode so the selector list doesn't shift under the cursor.
+            // No-op unless integration is on and `ttask` is reachable.
+            if self.integrate
+                && matches!(self.mode, Mode::Normal)
+                && self.last_sync.elapsed().as_secs() >= TASK_SYNC_INTERVAL_SECS
+            {
+                self.sync_with_tasks(false);
+                self.last_sync = Instant::now();
+            }
+
             self.update_title();
 
             let _ = terminal.draw(|frame| crate::ui::draw(frame, self));
